@@ -1,0 +1,182 @@
+"""Streamlit UI для обновления и мониторинга FAISS-индекса."""
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+import pandas as pd
+import streamlit as st
+
+from rag_agent.pipeline import (
+    DEFAULT_CHUNK_OVERLAP,
+    DEFAULT_CHUNK_SIZE,
+    describe_columns,
+    describe_index,
+    load_metadata,
+    normalize_headers,
+    report_columns,
+    update_index,
+)
+
+DEFAULT_INDEX_DIR = Path("data/index")
+DEFAULT_UPLOAD_DIR = Path("data/uploaded")
+DEFAULT_LOG_DIR = Path("data/logs")
+DEFAULT_MODEL = "intfloat/multilingual-e5-small"
+
+
+def read_uploaded_file(uploaded_file) -> pd.DataFrame:
+    suffix = Path(uploaded_file.name).suffix.lower()
+    if suffix == ".csv":
+        df = pd.read_csv(uploaded_file)
+    elif suffix in {".xls", ".xlsx"}:
+        df = pd.read_excel(uploaded_file)
+    else:
+        raise ValueError("Поддерживаются только CSV, XLS, XLSX")
+    return normalize_headers(df)
+
+
+def archive_upload(uploaded_file, upload_dir: Path) -> Path:
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    target = upload_dir / f"{timestamp}_{uploaded_file.name}"
+    target.write_bytes(uploaded_file.getbuffer())
+    return target
+
+
+def log_update(log_dir: Path, payload: dict) -> None:
+    log_dir.mkdir(parents=True, exist_ok=True)
+    entry = {"timestamp": datetime.utcnow().isoformat(), **payload}
+    with (log_dir / "updates.log").open("a", encoding="utf-8") as log_file:
+        log_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def get_existing_ids(index_dir: Path) -> set[str]:
+    metadata_path = index_dir / "metadata.jsonl"
+    if not metadata_path.exists():
+        return set()
+    metadata = load_metadata(index_dir)
+    return {str(row.get("ticket_id")) for row in metadata}
+
+
+def render_columns(df: pd.DataFrame) -> set[str]:
+    columns, missing = describe_columns(df)
+    report_columns(columns, missing, reporter=st.write)
+    if missing:
+        st.warning(
+            "Добавление не будет выполнено, пока не появятся обязательные колонки"
+            f" ({', '.join(sorted(missing))})."
+        )
+    return missing
+
+
+def render_index_state(index_dir: Path) -> Optional[dict]:
+    try:
+        stats = describe_index(index_dir)
+    except FileNotFoundError:
+        st.warning("Индекс не найден: загрузите файл и нажмите \"Обновить индекс\".")
+        return None
+
+    st.subheader("Текущее состояние индекса")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Тикетов", stats["tickets"])
+    col2.metric("Чанков", stats["chunks"])
+    col3.metric("Размерность", stats["dimension"])
+
+    cfg = stats["config"]
+    st.caption(
+        f"Модель: {cfg.model_name}, чанки: {cfg.chunk_size}/{cfg.chunk_overlap}, "
+        f"устройство: {cfg.device}"
+    )
+    return stats
+
+
+def main() -> None:
+    st.set_page_config(page_title="FAISS индекс тикетов", layout="wide")
+    st.title("FAISS индекс тикетов: загрузка и обновление")
+
+    index_dir = Path(st.text_input("Путь к индексу", str(DEFAULT_INDEX_DIR)))
+    stats = render_index_state(index_dir)
+
+    st.subheader("Загрузка файла")
+    uploaded_file = st.file_uploader("CSV или Excel", type=["csv", "xls", "xlsx"])
+    chunk_size = st.number_input(
+        "Размер чанка (символы)",
+        min_value=50,
+        max_value=2000,
+        value=stats["config"].chunk_size if stats else DEFAULT_CHUNK_SIZE,
+    )
+    chunk_overlap = st.number_input(
+        "Перекрытие чанков",
+        min_value=0,
+        max_value=500,
+        value=stats["config"].chunk_overlap if stats else DEFAULT_CHUNK_OVERLAP,
+    )
+
+    if uploaded_file:
+        df = read_uploaded_file(uploaded_file)
+        missing = render_columns(df)
+    else:
+        df = None
+        missing = set()
+
+    existing_ids = get_existing_ids(index_dir)
+    ids_in_file: set[str] = set()
+    if df is not None and "ID" in df.columns:
+        ids_in_file = {str(val) for val in df["ID"].dropna().astype(str)}
+
+    if df is not None:
+        new_ids = ids_in_file - existing_ids
+        already_indexed = ids_in_file & existing_ids
+        st.caption(
+            f"В файле уникальных ID: {len(ids_in_file)} | новых: {len(new_ids)} | "
+            f"уже в индексе: {len(already_indexed)}"
+        )
+
+    if st.button("Обновить индекс", disabled=df is None or bool(missing)):
+        if df is None:
+            st.error("Сначала загрузите файл")
+        elif missing:
+            st.error("Заполните обязательные колонки перед обновлением индекса")
+        else:
+            uploaded_path = archive_upload(uploaded_file, DEFAULT_UPLOAD_DIR)
+            try:
+                with st.spinner("Обновляем индекс..."):
+                    summary = update_index(
+                        df=df,
+                        index_dir=index_dir,
+                        chunk_size=int(chunk_size),
+                        chunk_overlap=int(chunk_overlap),
+                        model_name=stats["config"].model_name if stats else DEFAULT_MODEL,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                log_update(
+                    DEFAULT_LOG_DIR,
+                    {"file": uploaded_path.name, "error": str(exc), "index_dir": str(index_dir)},
+                )
+                st.error(f"Ошибка обновления индекса: {exc}")
+            else:
+                log_update(
+                    DEFAULT_LOG_DIR,
+                    {
+                        "file": uploaded_path.name,
+                        "added_ids": summary.get("added_ids", []),
+                        "skipped_ids": summary.get("skipped_ids", []),
+                        "index_dir": str(index_dir),
+                    },
+                )
+                st.success(
+                    f"Добавлено чанков: {summary['added_chunks']}. "
+                    f"Всего тикетов: {summary['total_tickets']} | Всего чанков: {summary['total_chunks']}"
+                )
+                if summary.get("added_ids"):
+                    st.write("Добавленные ID:", ", ".join(summary["added_ids"]))
+                if summary.get("skipped_ids"):
+                    st.write("Пропущенные ID:", ", ".join(summary["skipped_ids"]))
+
+    st.info("Загруженные файлы сохраняются в data/uploaded/, логи — в data/logs/updates.log.")
+
+
+if __name__ == "__main__":
+    main()

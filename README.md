@@ -6,9 +6,10 @@
 - Загрузка тикетов из CSV/XLSX (обязательно поля `ID`, `Описание`, `Решение`; опционально `Дата`, `Статус`, `Тип`).
 - Очистка HTML/технического шума и склейка «Описание + Решение».
 - Разбиение на чанки по 500 символов с перекрытием.
-- Построение эмбеддингов с помощью `sentence-transformers/all-MiniLM-L6-v2` (можно заменить на E5-small).
+- Построение эмбеддингов с помощью `intfloat/multilingual-e5-small` (можно заменить).
 - Хранение векторного индекса FAISS + payload с идентификаторами тикетов.
-- CLI для индексации и поиска похожих инцидентов.
+- CLI для индексации, поиска похожих инцидентов и дозаписи новых тикетов в существующий индекс.
+- Streamlit-UI для загрузки файлов, обновления индекса и просмотра текущего состояния.
 
 ## Быстрый старт
 ### 1) Установка окружения
@@ -38,7 +39,7 @@ pip install -r requirements.txt
 python -m rag_agent.ingest \
   --input data/sample_tickets.csv \
   --output data/index \
-  --model sentence-transformers/all-MiniLM-L6-v2 \
+  --model intfloat/multilingual-e5-small \
   --chunk-size 500 \
   --chunk-overlap 50 \
   --device cpu
@@ -55,8 +56,27 @@ python -m rag_agent.query \
 ```
 Выводит топ-N релевантных чанков с привязкой к `ticket_id` и `chunk_id`, готовых для подстановки в RAG-промпт.
 
+### 4) Дозапись новых тикетов в существующий индекс
+```bash
+python -m rag_agent.update_index \
+  --input data/new_batch.csv \
+  --index data/index \
+  --device cpu
+```
+Скрипт добавит только новые `ID`; существующие будут пропущены и показаны в отчёте.
+
+### 5) Streamlit-интерфейс
+```bash
+streamlit run streamlit_app.py
+```
+UI:
+- проверяет файл CSV/XLSX и показывает присутствующие/отсутствующие колонки;
+- сравнивает ID тикетов в файле с уже проиндексированными и добавляет только новые (upsert);
+- архивирует загруженный файл в `data/uploaded/` и пишет отчёты/ошибки в `data/logs/updates.log`;
+- умеет создать индекс в `data/index/`, если его ещё нет (требуется указать модель в UI).
+
 ## Архитектура
-- **Эмбеддинги**: `sentence-transformers` (по умолчанию `all-MiniLM-L6-v2`).
+- **Эмбеддинги**: `sentence-transformers` (по умолчанию `intfloat/multilingual-e5-small`).
 - **Векторное хранилище**: локальный FAISS IndexFlatIP с нормализацией (косинусное сходство).
 - **Метаданные**: `metadata.jsonl` с полями `ticket_id`, `chunk_id`, `text`, `source_fields`.
 - **Конфигурация**: `config.json` (модель, размерность, параметры чанков, устройство инференса).
@@ -88,8 +108,8 @@ python -m rag_agent.query \
 ```
 
 ## Локальная работа и замены
-- Для полностью оффлайн-окружения скачайте модель заранее: `python -m sentence_transformers.download sentence-transformers/all-MiniLM-L6-v2`.
-- Модель можно заменить на `intfloat/multilingual-e5-small` — укажите её через флаг `--model` при индексации и поиске.
+- Для полностью оффлайн-окружения скачайте модель заранее: `python -m sentence_transformers.download intfloat/multilingual-e5-small`.
+- Модель можно заменить на любую совместимую из `sentence-transformers` — укажите её через флаг `--model` при индексации и поиске.
 - Вместо FAISS можно подключить Qdrant: реализуйте адаптер в `rag_agent/pipeline.py` по аналогии с FAISS (класс `VectorStore`).
 
 ## Структура репозитория
@@ -102,6 +122,5 @@ rag_agent/
 ```
 
 ## Ограничения и будущая работа
-- Нет веб-UI; добавление Streamlit/Gradio возможно поверх CLI.
 - Ответы сейчас без генерации LLM; интеграция любой локальной модели возможна после retrieval.
 ```

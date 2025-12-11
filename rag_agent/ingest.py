@@ -13,8 +13,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", required=True, help="Папка для сохранения индекса")
     parser.add_argument(
         "--model",
-        default="sentence-transformers/all-MiniLM-L6-v2",
-        help="Модель эмбеддингов (по умолчанию all-MiniLM-L6-v2)",
+        default="intfloat/multilingual-e5-small",
+        help="Модель эмбеддингов (по умолчанию intfloat/multilingual-e5-small)",
     )
     parser.add_argument("--chunk-size", type=int, default=500, help="Размер чанка в символах")
     parser.add_argument("--chunk-overlap", type=int, default=50, help="Перекрытие чанков")
