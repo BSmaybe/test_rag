@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .pipeline import persist_pipeline, load_tickets, search
+from .pipeline import persist_pipeline, load_tickets, search, update_index
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -16,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--output", required=True, help="Папка для индекса")
     ingest_parser.add_argument(
         "--model",
-        default="sentence-transformers/all-MiniLM-L6-v2",
+        default="intfloat/multilingual-e5-small",
         help="Модель эмбеддингов",
     )
     ingest_parser.add_argument("--chunk-size", type=int, default=500)
@@ -29,6 +29,24 @@ def build_parser() -> argparse.ArgumentParser:
     query_parser.add_argument("--top-k", type=int, default=5)
     query_parser.add_argument("--batch-size", type=int, default=32)
     query_parser.add_argument("--model", help="Переопределить модель из config.json")
+
+    update_parser = subparsers.add_parser("update", help="Добавить новые тикеты в индекс")
+    update_parser.add_argument("--input", required=True, help="Путь к CSV/XLSX")
+    update_parser.add_argument("--index", required=True, help="Папка с индексом")
+    update_parser.add_argument("--chunk-size", type=int, default=None)
+    update_parser.add_argument("--chunk-overlap", type=int, default=None)
+    update_parser.add_argument("--batch-size", type=int, default=32)
+    update_parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu"],
+        help="Устройство инференса",
+    )
+    update_parser.add_argument(
+        "--model",
+        default=None,
+        help="Модель эмбеддингов (по умолчанию из config.json)",
+    )
     return parser
 
 
@@ -61,6 +79,28 @@ def main() -> None:
             return
         for row in results:
             print(f"[ID={row['ticket_id']} #{row['chunk_id']}] score={row['score']:.4f} \n{row['text']}\n")
+    elif args.command == "update":
+        df = load_tickets(Path(args.input))
+        summary = update_index(
+            df=df,
+            index_dir=Path(args.index),
+            chunk_size=args.chunk_size,
+            chunk_overlap=args.chunk_overlap,
+            batch_size=args.batch_size,
+            device=args.device,
+            model_name=args.model,
+        )
+        added_ids = summary.get("added_ids") or []
+        skipped_ids = summary.get("skipped_ids") or []
+
+        if added_ids:
+            print(f"Добавлены тикеты: {', '.join(added_ids)}")
+        if skipped_ids:
+            print(f"Пропущены существующие тикеты: {', '.join(skipped_ids)}")
+        print(
+            f"Индекс обновлён: +{summary['added_chunks']} чанков, всего тикетов "
+            f"{summary['total_tickets']}, всего чанков {summary['total_chunks']}"
+        )
     else:
         parser.print_help()
 
