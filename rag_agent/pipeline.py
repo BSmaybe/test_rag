@@ -23,6 +23,7 @@ class Config:
     chunk_size: int
     chunk_overlap: int
     index_type: str = "IndexFlatIP"
+    device: str = "cpu"
 
     def to_dict(self) -> Dict:
         return {
@@ -31,12 +32,13 @@ class Config:
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
             "index_type": self.index_type,
+            "device": self.device,
         }
 
     @classmethod
     def from_file(cls, path: Path) -> "Config":
         data = json.loads(path.read_text(encoding="utf-8"))
-        return cls(**data)
+        return cls(**{**{"device": "cpu"}, **data})
 
 
 def clean_text(text: str) -> str:
@@ -135,14 +137,17 @@ def prepare_chunks(
 
 
 @lru_cache(maxsize=2)
-def load_model(model_name: str) -> SentenceTransformer:
-    return SentenceTransformer(model_name)
+def load_model(model_name: str, device: str = "cpu") -> SentenceTransformer:
+    return SentenceTransformer(model_name, device=device)
 
 
 def encode_texts(
-    texts: Sequence[str], model_name: str, batch_size: int = 32
+    texts: Sequence[str],
+    model_name: str,
+    batch_size: int = 32,
+    device: str = "cpu",
 ) -> np.ndarray:
-    model = load_model(model_name)
+    model = load_model(model_name, device=device)
     embeddings = model.encode(
         list(texts), batch_size=batch_size, convert_to_numpy=True, show_progress_bar=True
     )
@@ -193,18 +198,22 @@ def persist_pipeline(
     chunk_size: int = 500,
     chunk_overlap: int = 50,
     batch_size: int = 32,
+    device: str = "cpu",
     records: List[Dict] | None = None,
 ) -> None:
     if records is None:
         records = prepare_chunks(df, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     texts = [r["text"] for r in records]
-    embeddings = encode_texts(texts, model_name=model_name, batch_size=batch_size)
+    embeddings = encode_texts(
+        texts, model_name=model_name, batch_size=batch_size, device=device
+    )
     index = build_faiss_index(embeddings)
     config = Config(
         model_name=model_name,
         dimension=embeddings.shape[1],
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
+        device=device,
     )
     save_index(index, records, config, output_dir=output_dir)
 
@@ -215,10 +224,14 @@ def search(
     top_k: int = 5,
     batch_size: int = 32,
     model_name: str | None = None,
+    device: str = "cpu",
 ) -> List[Dict]:
     index, metadata, config = load_index(index_dir)
     model_to_use = model_name or config.model_name
-    query_vec = encode_texts([query], model_name=model_to_use, batch_size=batch_size)
+    device_to_use = device or config.device
+    query_vec = encode_texts(
+        [query], model_name=model_to_use, batch_size=batch_size, device=device_to_use
+    )
     faiss.normalize_L2(query_vec)
     distances, ids = index.search(query_vec, top_k)
     results: List[Dict] = []

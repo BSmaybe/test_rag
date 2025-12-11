@@ -14,6 +14,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-k", type=int, default=5, help="Количество результатов")
     parser.add_argument("--batch-size", type=int, default=32, help="Размер батча при инференсе")
     parser.add_argument("--model", help="Переопределить модель эмбеддингов из config.json")
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu"],
+        help="Устройство для инференса эмбеддингов (по умолчанию cpu)",
+    )
     return parser
 
 
@@ -41,6 +47,7 @@ def main() -> None:
         top_k=args.top_k,
         batch_size=args.batch_size,
         model_name=args.model,
+        device=args.device,
     )
 
     if not results:

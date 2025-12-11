@@ -33,14 +33,15 @@ pip install -r requirements.txt
 - `Текущий статус` → `Статус`
 - `Вид запроса` → `Тип`
 
-Пример индексирования демо-файла:
+Пример индексирования демо-файла (по умолчанию инференс только на CPU):
 ```bash
 python -m rag_agent.ingest \
   --input data/sample_tickets.csv \
   --output data/index \
   --model sentence-transformers/all-MiniLM-L6-v2 \
   --chunk-size 500 \
-  --chunk-overlap 50
+  --chunk-overlap 50 \
+  --device cpu
 ```
 В результате появятся файлы `index.faiss`, `metadata.jsonl` и `config.json` в папке `data/index`.
 
@@ -49,7 +50,8 @@ python -m rag_agent.ingest \
 python -m rag_agent.query \
   --index data/index \
   --query "Ошибка авторизации в личном кабинете" \
-  --top-k 5
+  --top-k 5 \
+  --device cpu
 ```
 Выводит топ-N релевантных чанков с привязкой к `ticket_id` и `chunk_id`, готовых для подстановки в RAG-промпт.
 
@@ -57,7 +59,7 @@ python -m rag_agent.query \
 - **Эмбеддинги**: `sentence-transformers` (по умолчанию `all-MiniLM-L6-v2`).
 - **Векторное хранилище**: локальный FAISS IndexFlatIP с нормализацией (косинусное сходство).
 - **Метаданные**: `metadata.jsonl` с полями `ticket_id`, `chunk_id`, `text`, `source_fields`.
-- **Конфигурация**: `config.json` (модель, размерность, параметры чанков).
+- **Конфигурация**: `config.json` (модель, размерность, параметры чанков, устройство инференса).
 
 ## Формат payload для RAG
 Каждый найденный чанк содержит:

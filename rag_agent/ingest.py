@@ -19,6 +19,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--chunk-size", type=int, default=500, help="Размер чанка в символах")
     parser.add_argument("--chunk-overlap", type=int, default=50, help="Перекрытие чанков")
     parser.add_argument("--batch-size", type=int, default=32, help="Размер батча при инференсе")
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu"],
+        help="Устройство для инференса эмбеддингов (по умолчанию cpu)",
+    )
     return parser
 
 
@@ -40,6 +46,7 @@ def main() -> None:
         chunk_size=args.chunk_size,
         chunk_overlap=args.chunk_overlap,
         batch_size=args.batch_size,
+        device=args.device,
         records=records,
     )
     print(f"Индекс сохранён в {output_dir}")
