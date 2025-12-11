@@ -62,10 +62,43 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]
 
 def load_tickets(input_path: Path) -> pd.DataFrame:
     if input_path.suffix.lower() == ".csv":
-        return pd.read_csv(input_path)
-    if input_path.suffix.lower() in {".xls", ".xlsx"}:
-        return pd.read_excel(input_path)
-    raise ValueError("Поддерживаются только CSV, XLS, XLSX")
+        df = pd.read_csv(input_path)
+    elif input_path.suffix.lower() in {".xls", ".xlsx"}:
+        df = pd.read_excel(input_path)
+    else:
+        raise ValueError("Поддерживаются только CSV, XLS, XLSX")
+
+    return normalize_headers(df)
+
+
+def normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
+    """Сопоставляет нестандартные названия колонок с целевыми алиасами."""
+
+    alias_map = {
+        "ID": ["ID", "Номер запроса"],
+        "Описание": ["Описание"],
+        "Решение": ["Решение", "Описание решения"],
+        "Дата": ["Дата", "Дата/время регистрации"],
+        "Статус": ["Статус", "Текущий статус"],
+        "Тип": ["Тип", "Вид запроса"],
+    }
+
+    normalized_columns = {col.strip(): col for col in df.columns}
+    rename_map: Dict[str, str] = {}
+
+    for target, aliases in alias_map.items():
+        # Если столбец уже присутствует под целевым именем — пропускаем
+        if target in normalized_columns:
+            continue
+        for alias in aliases:
+            if alias in normalized_columns:
+                rename_map[normalized_columns[alias]] = target
+                break
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    return df
 
 
 def prepare_chunks(
