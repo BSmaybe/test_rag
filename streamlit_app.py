@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from time import perf_counter
 
 import pandas as pd
 import streamlit as st
@@ -141,6 +142,7 @@ def main() -> None:
             st.error("Заполните обязательные колонки перед обновлением индекса")
         else:
             uploaded_path = archive_upload(uploaded_file, DEFAULT_UPLOAD_DIR)
+            started_at = perf_counter()
             try:
                 with st.spinner("Обновляем индекс..."):
                     summary = update_index(
@@ -153,7 +155,14 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 log_update(
                     DEFAULT_LOG_DIR,
-                    {"file": uploaded_path.name, "error": str(exc), "index_dir": str(index_dir)},
+                    {
+                        "file": uploaded_path.name,
+                        "index_dir": str(index_dir),
+                        "duration_seconds": round(perf_counter() - started_at, 3),
+                        "added": 0,
+                        "skipped": 0,
+                        "errors": [str(exc)],
+                    },
                 )
                 st.error(f"Ошибка обновления индекса: {exc}")
             else:
@@ -161,9 +170,13 @@ def main() -> None:
                     DEFAULT_LOG_DIR,
                     {
                         "file": uploaded_path.name,
+                        "index_dir": str(index_dir),
+                        "duration_seconds": round(perf_counter() - started_at, 3),
+                        "added": len(summary.get("added_ids", [])),
+                        "skipped": len(summary.get("skipped_ids", [])),
+                        "errors": [],
                         "added_ids": summary.get("added_ids", []),
                         "skipped_ids": summary.get("skipped_ids", []),
-                        "index_dir": str(index_dir),
                     },
                 )
                 st.success(
