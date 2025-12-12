@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from sentence_transformers import SentenceTransformer
+from FlagEmbedding import FlagReranker
 
 
 REQUIRED_COLUMNS = {"ID", "Описание", "Решение"}
@@ -179,6 +180,54 @@ def encode_texts(
         list(texts), batch_size=batch_size, convert_to_numpy=True, show_progress_bar=True
     )
     return embeddings.astype("float32")
+
+
+@lru_cache(maxsize=1)
+def load_reranker(model_name: str, device: str = "cpu") -> FlagReranker:
+    use_fp16 = device != "cpu"
+    return FlagReranker(model_name, use_fp16=use_fp16, device=device)
+
+
+def rerank_results(
+    query: str,
+    candidates: Sequence[Dict],
+    model_name: str,
+    device: str = "cpu",
+    pairs: Sequence[tuple[str, str]] | None = None,
+) -> List[Dict]:
+    if not candidates:
+        return []
+
+    valid_candidates: List[Dict] = []
+    pairs_to_score: List[tuple[str, str]] = []
+
+    for row in candidates:
+        text = row.get("text")
+        if not text:
+            continue
+        valid_candidates.append(row)
+        if pairs is not None:
+            try:
+                _, provided_text = pairs[len(pairs_to_score)]
+            except (IndexError, ValueError):
+                provided_text = None
+            text_to_use = provided_text or text
+            pairs_to_score.append((query, text_to_use))
+        else:
+            pairs_to_score.append((query, text))
+
+    if not pairs_to_score:
+        print("[RERANK DEBUG] No valid (query, chunk) pairs for reranking")
+        return []
+
+    reranker = load_reranker(model_name, device=device)
+    scores = reranker.compute_score(pairs_to_score, normalize=True)
+
+    reranked: List[Dict] = []
+    for row, score in zip(valid_candidates, scores):
+        reranked.append({**row, "score": float(score)})
+
+    return sorted(reranked, key=lambda row: row["score"], reverse=True)
 
 
 def build_faiss_index(vectors: np.ndarray) -> faiss.Index:
@@ -375,15 +424,19 @@ def search(
     batch_size: int = 32,
     model_name: str | None = None,
     device: str = "cpu",
+    rerank: bool = False,
+    reranker_model: str = "BAAI/bge-reranker-base",
+    rerank_candidates: int = 30,
 ) -> List[Dict]:
     index, metadata, config = load_index(index_dir)
     model_to_use = model_name or config.model_name
     device_to_use = device or config.device
+    candidates_to_fetch = rerank_candidates if rerank else top_k
     query_vec = encode_texts(
         [query], model_name=model_to_use, batch_size=batch_size, device=device_to_use
     )
     faiss.normalize_L2(query_vec)
-    distances, ids = index.search(query_vec, top_k)
+    distances, ids = index.search(query_vec, min(candidates_to_fetch, index.ntotal))
     results: List[Dict] = []
     for score, idx in zip(distances[0], ids[0]):
         if idx == -1:
@@ -396,4 +449,18 @@ def search(
             "text": meta["text"],
             "source_fields": meta.get("source_fields", {}),
         })
-    return results
+    if rerank and results:
+        pairs = [(query, ch["text"]) for ch in results if ch.get("text")]
+        print(len(results), results[:1])
+        print(f"[RERANK DEBUG] Retrieved: {len(results)}")
+        for ch in results:
+            print(f" - {ch.get('ticket_id')} | {len(ch.get('text', ''))} chars")
+        print(f"[RERANK DEBUG] Pairs for reranking: {len(pairs)}")
+        results = rerank_results(
+            query=query,
+            candidates=[ch for ch in results if ch.get("text")],
+            model_name=reranker_model,
+            device=device_to_use,
+            pairs=pairs,
+        )
+    return results[:top_k]
