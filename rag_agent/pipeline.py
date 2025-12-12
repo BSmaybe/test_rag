@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer
 from FlagEmbedding import FlagReranker
 
 
@@ -188,6 +189,11 @@ def load_reranker(model_name: str, device: str = "cpu") -> FlagReranker:
     return FlagReranker(model_name, use_fp16=use_fp16, device=device)
 
 
+@lru_cache(maxsize=1)
+def load_tokenizer(model_name: str) -> AutoTokenizer:
+    return AutoTokenizer.from_pretrained(model_name)
+
+
 def rerank_results(
     query: str,
     candidates: Sequence[Dict],
@@ -202,6 +208,18 @@ def rerank_results(
         print(
             f"[RERANK DEBUG] Skip rerank: invalid query of length {len(str(query)) if query is not None else 'None'}"
         )
+        return []
+
+    try:
+        tokenizer = load_tokenizer(model_name)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[RERANK ERROR] Failed to load tokenizer: {exc}")
+        return []
+
+    query_text = query.strip()
+    query_tokens = tokenizer.encode(query_text, add_special_tokens=True)
+    if not query_tokens:
+        print("[RERANK DEBUG] Skip rerank: empty query tokenization")
         return []
 
     valid_candidates: List[Dict] = []
@@ -228,14 +246,30 @@ def rerank_results(
             )
             pairs_to_score.append((query, text_to_use))
         else:
-            pairs_to_score.append((query, text))
+            text_to_use = text
+            pairs_to_score.append((query, text_to_use))
+
+        chunk_tokens = tokenizer.encode(text_to_use.strip(), add_special_tokens=True)
+        if not chunk_tokens:
+            print(
+                f"[SKIP] Bad tokenization: {row.get('ticket_id')} "
+                f"q_len={len(query_tokens)} c_len={len(chunk_tokens)}"
+            )
+            valid_candidates.pop()
+            pairs_to_score.pop()
+
+    print(f"[RERANK DEBUG] Final pairs count: {len(pairs_to_score)}")
 
     if not pairs_to_score:
         print("[RERANK DEBUG] No valid (query, chunk) pairs for reranking")
         return []
 
-    reranker = load_reranker(model_name, device=device)
-    scores = reranker.compute_score(pairs_to_score, normalize=True)
+    try:
+        reranker = load_reranker(model_name, device=device)
+        scores = reranker.compute_score(pairs_to_score, normalize=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[RERANK ERROR] Failed to compute scores: {exc}")
+        return []
 
     reranked: List[Dict] = []
     for row, score in zip(valid_candidates, scores):
