@@ -201,19 +201,24 @@ def rerank_results(
     valid_candidates: List[Dict] = []
     pairs_to_score: List[tuple[str, str]] = []
 
-    if pairs is not None:
-        pairs_to_score = [(q, p) for q, p in pairs if p]
-        valid_candidates = [c for c in candidates if c.get("text")]
-    else:
-        for row in candidates:
-            text = row.get("text")
-            if not text:
-                continue
-            valid_candidates.append(row)
+    for row in candidates:
+        text = row.get("text")
+        if not text:
+            continue
+        valid_candidates.append(row)
+        if pairs is not None:
+            try:
+                _, provided_text = pairs[len(pairs_to_score)]
+            except (IndexError, ValueError):
+                provided_text = None
+            text_to_use = provided_text or text
+            pairs_to_score.append((query, text_to_use))
+        else:
             pairs_to_score.append((query, text))
 
     if not pairs_to_score:
-        raise ValueError("No valid (query, chunk) pairs for reranking")
+        print("[RERANK DEBUG] No valid (query, chunk) pairs for reranking")
+        return []
 
     reranker = load_reranker(model_name, device=device)
     scores = reranker.compute_score(pairs_to_score, normalize=True)
