@@ -27,7 +27,7 @@ DEFAULT_INDEX_DIR = Path("data/index")
 DEFAULT_UPLOAD_DIR = Path("data/uploaded")
 DEFAULT_LOG_DIR = Path("data/logs")
 DEFAULT_MODEL = "intfloat/multilingual-e5-small"
-DEFAULT_LLM_PATH = "models/phi-2.Q4_K_M.gguf"
+DEFAULT_LLM_PATH = "models/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
 
 
 def read_uploaded_file(uploaded_file) -> pd.DataFrame:
@@ -208,7 +208,7 @@ def main() -> None:
     top_k = st.slider("Сколько чанков вернуть", min_value=1, max_value=10, value=5)
     mode = st.radio("Режим", ["Поиск", "Поиск + генерация"], horizontal=True)
     llm_path = st.text_input(
-        "GGUF модель для генерации (phi-2 / mistral / zephyr / tinyllama)",
+        "GGUF модель для генерации (например, mistral-7b-instruct-v0.2.Q4_K_M.gguf)",
         value=str(DEFAULT_LLM_PATH),
         disabled=mode == "Поиск",
     )
@@ -218,6 +218,15 @@ def main() -> None:
         max_value=1024,
         value=512,
         help="Чтобы уложиться в 10 секунд на CPU, держите ответ короче 1024 токенов.",
+        disabled=mode == "Поиск",
+    )
+    n_ctx = st.number_input(
+        "Контекстное окно модели (n_ctx)",
+        min_value=2048,
+        max_value=8192,
+        value=4096,
+        step=512,
+        help="Для mistral рекомендуется не меньше 4096, минимум 2048.",
         disabled=mode == "Поиск",
     )
 
@@ -255,6 +264,7 @@ def main() -> None:
                             chunks=results,
                             model_path=llm_path,
                             max_tokens=int(max_tokens),
+                            n_ctx=int(n_ctx),
                         )
                 except ImportError as exc:  # pragma: no cover - UI сообщение
                     st.error(str(exc))

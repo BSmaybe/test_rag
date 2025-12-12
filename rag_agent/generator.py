@@ -1,4 +1,9 @@
-"""Генерация ответа на основе найденных чанков с помощью llama-cpp."""
+"""Генерация ответа на основе найденных чанков с помощью llama-cpp.
+
+В этом модуле собирается промпт в требуемом формате (4 раздела) и передаётся
+в локальную GGUF-модель через `llama-cpp-python`. Модель загружается лениво и
+кешируется, чтобы не тратить время на повторную инициализацию в UI.
+"""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -12,33 +17,67 @@ except ImportError:  # pragma: no cover - fallback при отсутствующ
 
 
 def format_chunk(chunk: dict) -> str:
-    """Форматирует чанк для вставки в промпт."""
+    """Форматирует чанк для вставки в промпт (с ID и chunk_id)."""
 
     ticket_id = chunk.get("ticket_id")
     chunk_id = chunk.get("chunk_id")
     text = chunk.get("text", "").strip()
-    return f"[ticket_id={ticket_id} chunk_id={chunk_id}] {text}"
+    return f"- [ID={ticket_id} #{chunk_id}] {text}"
 
 
-def build_prompt(question: str, chunks: Sequence[dict]) -> str:
-    """Создаёт единый промпт для всех моделей (phi-2, mistral, zephyr, tinyllama)."""
+def build_prompt(context: str, question: str) -> str:
+    """Формирует промпт в требуемой структуре с 4 разделами."""
 
-    formatted_chunks = "\n".join(format_chunk(chunk) for chunk in chunks)
-    system_instructions = (
-        "Ты — помощник оператора. Используй только предоставленные фрагменты тикетов "
-        "для ответа на вопрос. Обязательно ссылайся на ticket_id в тексте ответа. "
-        "Если информации недостаточно, скажи об этом. Ответ делай лаконичным."
-    )
-    user_block = (
-        f"Вопрос оператора: {question}\n\n"
-        f"Контекст (топ-{len(chunks)} чанков):\n{formatted_chunks}\n\n"
-        "Дай короткий ответ (не более 1024 токенов), сохраняя ticket_id из контекста."
-    )
-    return f"<s>[SYSTEM]\n{system_instructions}\n[/SYSTEM]\n{user_block}\n"
+    return f"""Ты — инженер технической поддержки банка, который помогает разбирать обращения клиентов
+по мобильному и веб-банку. Твоя задача — по новому инциденту и историям прошлых заявок
+сформулировать понятный и практичный план действий для инженера 1-й линии.
+
+
+Правила:
+- Отвечай ТОЛЬКО по-русски.
+- Не пиши «воды» и общих фраз, используй конкретику.
+- НЕ копируй текст контекста и самого запроса дословно.
+- НЕ повторяй формулировки инструкций, вместо них подставь реальные пункты.
+- Строго соблюдай структуру из ЧЕТЫРЁХ разделов (1–4), никаких других заголовков.
+
+
+КОНТЕКСТ:
+{context}
+
+
+НОВЫЙ ИНЦИДЕНТ:
+\"\"\"{question}\"\"\"
+
+
+Сначала проанализируй новый инцидент и сопоставь его с контекстом.
+Затем дай ответ СТРОГО в ЧЕТЫРЁХ разделах:
+
+
+1) Описание проблемы:
+- ...
+
+
+2) Возможные причины:
+- ...
+
+
+3) Рекомендуемые действия:
+- ...
+
+
+4) Следующие шаги/эскалация:
+- ...
+"""
+
+
+def prepare_context(chunks: Sequence[dict]) -> str:
+    """Собирает текстовый контекст из найденных чанков."""
+
+    return "\n".join(format_chunk(chunk) for chunk in chunks)
 
 
 @lru_cache(maxsize=2)
-def load_llm(model_path: str | Path, n_ctx: int = 2048) -> "Llama":
+def load_llm(model_path: str | Path, n_ctx: int = 4096) -> "Llama":
     """Загружает GGUF-модель через llama-cpp-python и кеширует экземпляр."""
 
     if Llama is None:  # pragma: no cover - лениво сообщаем об отсутствии зависимости
@@ -54,7 +93,7 @@ def load_llm(model_path: str | Path, n_ctx: int = 2048) -> "Llama":
             "Убедитесь, что файл существует и путь указан корректно."
         )
 
-    return Llama(model_path=str(path), n_ctx=n_ctx)
+    return Llama(model_path=str(path), n_ctx=max(n_ctx, 2048))
 
 
 def generate_answer(
@@ -64,7 +103,7 @@ def generate_answer(
     max_tokens: int = 512,
     temperature: float = 0.2,
     top_p: float = 0.9,
-    n_ctx: int = 2048,
+    n_ctx: int = 4096,
 ) -> str:
     """Генерирует ответ на основе топ-N чанков и вопроса оператора."""
 
@@ -72,7 +111,7 @@ def generate_answer(
     if not context:
         return "Недостаточно контекста для ответа."
 
-    prompt = build_prompt(question, context)
+    prompt = build_prompt(context=prepare_context(context), question=question)
     model = load_llm(model_path, n_ctx=n_ctx)
     result = model(
         prompt=prompt,
