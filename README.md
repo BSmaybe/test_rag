@@ -57,6 +57,13 @@ python -m rag_agent.query \
 Выводит топ-N релевантных чанков с привязкой к `ticket_id` и `chunk_id`, готовых для подстановки в RAG-промпт.
 
 ### 4) Поиск + генерация ответа в Streamlit
+Перед запуском генерации убедитесь, что установлена зависимость `llama-cpp-python` из `requirements.txt`:
+```bash
+pip install -r requirements.txt  # или повторно установить только llama-cpp-python
+```
+Скачайте GGUF-модель (например, `mistral-7b-instruct-v0.2.Q4_K_M.gguf`) и укажите её путь в UI или
+оставьте по умолчанию `models/phi-2.Q4_K_M.gguf`. Файл должен лежать по указанному пути, иначе генерация
+не стартует.
 ```bash
 streamlit run streamlit_app.py
 ```

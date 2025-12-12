@@ -42,8 +42,19 @@ def load_llm(model_path: str | Path, n_ctx: int = 2048) -> "Llama":
     """Загружает GGUF-модель через llama-cpp-python и кеширует экземпляр."""
 
     if Llama is None:  # pragma: no cover - лениво сообщаем об отсутствии зависимости
-        raise ImportError("Для генерации ответа установите пакет llama-cpp-python")
-    return Llama(model_path=str(model_path), n_ctx=n_ctx)
+        raise ImportError(
+            "Для генерации ответа установите зависимость llama-cpp-python "
+            "(`pip install llama-cpp-python`) в текущее окружение."
+        )
+
+    path = Path(model_path)
+    if not path.exists():  # pragma: no cover - защита от неверного пути к модели
+        raise FileNotFoundError(
+            f"GGUF-модель не найдена по пути: {path}. "
+            "Убедитесь, что файл существует и путь указан корректно."
+        )
+
+    return Llama(model_path=str(path), n_ctx=n_ctx)
 
 
 def generate_answer(
