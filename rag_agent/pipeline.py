@@ -192,14 +192,14 @@ def save_index(
     index: faiss.Index,
     metadata: List[Dict],
     config: Config,
-    output_dir: Path,
+    index_dir: Path,
 ) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    faiss.write_index(index, str(output_dir / "index.faiss"))
-    with (output_dir / "metadata.jsonl").open("w", encoding="utf-8") as f:
+    index_dir.mkdir(parents=True, exist_ok=True)
+    faiss.write_index(index, str(index_dir / "index.faiss"))
+    with (index_dir / "metadata.jsonl").open("w", encoding="utf-8") as f:
         for row in metadata:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    (output_dir / "config.json").write_text(
+    (index_dir / "config.json").write_text(
         json.dumps(config.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
@@ -242,7 +242,7 @@ def persist_pipeline(
         chunk_overlap=chunk_overlap,
         device=device,
     )
-    save_index(index, records, config, output_dir=output_dir)
+    save_index(index, records, config, index_dir=output_dir)
 
 
 def update_index(
