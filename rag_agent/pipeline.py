@@ -266,10 +266,39 @@ def rerank_results(
 
     try:
         reranker = load_reranker(model_name, device=device)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[RERANK ERROR] Failed to load reranker: {exc}")
+        return []
+
+    try:
         scores = reranker.compute_score(pairs_to_score, normalize=True)
     except Exception as exc:  # noqa: BLE001
-        print(f"[RERANK ERROR] Failed to compute scores: {exc}")
-        return []
+        print(
+            f"[RERANK ERROR] Failed to compute scores for {len(pairs_to_score)} pairs: {exc}"
+        )
+
+        fallback_candidates: List[Dict] = []
+        fallback_scores: List[float] = []
+
+        for idx, (pair, row) in enumerate(zip(pairs_to_score, valid_candidates)):
+            try:
+                pair_score = reranker.compute_score([pair], normalize=True)[0]
+            except Exception as inner_exc:  # noqa: BLE001
+                print(
+                    "[RERANK ERROR] Drop pair "
+                    f"idx={idx} ticket={row.get('ticket_id')} reason: {inner_exc}"
+                )
+                continue
+
+            fallback_candidates.append(row)
+            fallback_scores.append(pair_score)
+
+        if not fallback_candidates:
+            print("[RERANK DEBUG] All candidate pairs failed to score individually")
+            return []
+
+        valid_candidates = fallback_candidates
+        scores = fallback_scores
 
     reranked: List[Dict] = []
     for row, score in zip(valid_candidates, scores):
