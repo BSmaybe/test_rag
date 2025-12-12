@@ -6,3 +6,4 @@ beautifulsoup4
 openpyxl
 streamlit
 llama-cpp-python
+FlagEmbedding
