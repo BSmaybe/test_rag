@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 from time import perf_counter
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
 
+from rag_agent.generator import generate_answer
 from rag_agent.pipeline import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
@@ -18,6 +19,7 @@ from rag_agent.pipeline import (
     load_metadata,
     normalize_headers,
     report_columns,
+    search,
     update_index,
 )
 
@@ -25,6 +27,7 @@ DEFAULT_INDEX_DIR = Path("data/index")
 DEFAULT_UPLOAD_DIR = Path("data/uploaded")
 DEFAULT_LOG_DIR = Path("data/logs")
 DEFAULT_MODEL = "intfloat/multilingual-e5-small"
+DEFAULT_LLM_PATH = "models/phi-2.Q4_K_M.gguf"
 
 
 def read_uploaded_file(uploaded_file) -> pd.DataFrame:
@@ -116,8 +119,16 @@ def main() -> None:
     )
 
     if uploaded_file:
-        df = read_uploaded_file(uploaded_file)
-        missing = render_columns(df)
+        with st.status("Загружаем файл...", expanded=True) as status:
+            try:
+                df = read_uploaded_file(uploaded_file)
+            except Exception as exc:  # noqa: BLE001
+                status.update(label="Не удалось загрузить файл", state="error")
+                st.error(str(exc))
+                df = None
+            else:
+                status.update(label="Файл загружен", state="complete")
+        missing = render_columns(df) if df is not None else set()
     else:
         df = None
         missing = set()
@@ -189,6 +200,69 @@ def main() -> None:
                     st.write("Пропущенные ID:", ", ".join(summary["skipped_ids"]))
 
     st.info("Загруженные файлы сохраняются в data/uploaded/, логи — в data/logs/updates.log.")
+
+    st.subheader("Поиск и генерация ответа")
+    query_text = st.text_area(
+        "Вопрос оператора", placeholder="Например: Ошибка авторизации в личном кабинете"
+    )
+    top_k = st.slider("Сколько чанков вернуть", min_value=1, max_value=10, value=5)
+    mode = st.radio("Режим", ["Поиск", "Поиск + генерация"], horizontal=True)
+    llm_path = st.text_input(
+        "GGUF модель для генерации (phi-2 / mistral / zephyr / tinyllama)",
+        value=str(DEFAULT_LLM_PATH),
+        disabled=mode == "Поиск",
+    )
+    max_tokens = st.number_input(
+        "Лимит токенов ответа",
+        min_value=128,
+        max_value=1024,
+        value=512,
+        help="Чтобы уложиться в 10 секунд на CPU, держите ответ короче 1024 токенов.",
+        disabled=mode == "Поиск",
+    )
+
+    if st.button("Запустить поиск", use_container_width=True):
+        if not query_text.strip():
+            st.error("Введите вопрос оператора")
+        elif stats is None:
+            st.error("Сначала создайте или укажите индекс")
+        else:
+            with st.spinner("Ищем похожие чанки..."):
+                results = search(
+                    query=query_text,
+                    index_dir=index_dir,
+                    top_k=int(top_k),
+                    model_name=stats["config"].model_name,
+                    device=stats["config"].device,
+                )
+
+            if not results:
+                st.info("Ничего не найдено")
+                return
+
+            st.write("Найденные чанки:")
+            for row in results:
+                st.code(
+                    f"[ID={row['ticket_id']} #{row['chunk_id']}] score={row['score']:.4f}\n{row['text']}",
+                    language="markdown",
+                )
+
+            if mode == "Поиск + генерация":
+                try:
+                    with st.spinner("Генерируем ответ (llama-cpp)..."):
+                        answer = generate_answer(
+                            question=query_text,
+                            chunks=results,
+                            model_path=llm_path,
+                            max_tokens=int(max_tokens),
+                        )
+                except ImportError as exc:  # pragma: no cover - UI сообщение
+                    st.error(str(exc))
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Ошибка генерации ответа: {exc}")
+                else:
+                    st.success("Сгенерированный ответ")
+                    st.write(answer)
 
 
 if __name__ == "__main__":
