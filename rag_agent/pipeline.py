@@ -198,12 +198,22 @@ def rerank_results(
     if not candidates:
         return []
 
+    if not (isinstance(query, str) and len(query.strip()) > 10):
+        print(
+            f"[RERANK DEBUG] Skip rerank: invalid query of length {len(str(query)) if query is not None else 'None'}"
+        )
+        return []
+
     valid_candidates: List[Dict] = []
     pairs_to_score: List[tuple[str, str]] = []
 
     for row in candidates:
         text = row.get("text")
-        if not text:
+        if not (isinstance(text, str) and len(text.strip()) > 10):
+            print(
+                f"[SKIP RERANK] Bad chunk: {row.get('ticket_id')} "
+                f"len={len(text) if isinstance(text, str) else 'None'}"
+            )
             continue
         valid_candidates.append(row)
         if pairs is not None:
@@ -211,7 +221,11 @@ def rerank_results(
                 _, provided_text = pairs[len(pairs_to_score)]
             except (IndexError, ValueError):
                 provided_text = None
-            text_to_use = provided_text or text
+            text_to_use = (
+                provided_text
+                if isinstance(provided_text, str) and len(provided_text.strip()) > 10
+                else text
+            )
             pairs_to_score.append((query, text_to_use))
         else:
             pairs_to_score.append((query, text))
