@@ -206,6 +206,14 @@ def main() -> None:
         "Вопрос оператора", placeholder="Например: Ошибка авторизации в личном кабинете"
     )
     top_k = st.slider("Сколько чанков вернуть", min_value=1, max_value=10, value=5)
+    use_rerank = st.checkbox(
+        "Использовать reranker (например, BGE)", value=False, help="Сначала выбираются top-30 в FAISS, затем результаты ранжируются"
+    )
+    reranker_model = st.text_input(
+        "Модель reranker",
+        value="BAAI/bge-reranker-base",
+        disabled=not use_rerank,
+    )
     mode = st.radio("Режим", ["Поиск", "Поиск + генерация"], horizontal=True)
     llm_path = st.text_input(
         "GGUF модель для генерации (например, mistral-7b-instruct-v0.2.Q4_K_M.gguf)",
@@ -243,6 +251,8 @@ def main() -> None:
                     top_k=int(top_k),
                     model_name=stats["config"].model_name,
                     device=stats["config"].device,
+                    rerank=use_rerank,
+                    reranker_model=reranker_model,
                 )
 
             if not results:

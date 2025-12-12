@@ -12,6 +12,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--index", required=True, help="Папка с index.faiss, metadata.jsonl, config.json")
     parser.add_argument("--query", required=True, help="Текст запроса оператора")
     parser.add_argument("--top-k", type=int, default=5, help="Количество результатов")
+    parser.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Включить reranker поверх результатов FAISS",
+    )
+    parser.add_argument(
+        "--reranker-model",
+        default="BAAI/bge-reranker-base",
+        help="Модель для reranker (например, BAAI/bge-reranker-base)",
+    )
     parser.add_argument("--batch-size", type=int, default=32, help="Размер батча при инференсе")
     parser.add_argument("--model", help="Переопределить модель эмбеддингов из config.json")
     parser.add_argument(
@@ -48,6 +58,8 @@ def main() -> None:
         batch_size=args.batch_size,
         model_name=args.model,
         device=args.device,
+        rerank=args.rerank,
+        reranker_model=args.reranker_model,
     )
 
     if not results:

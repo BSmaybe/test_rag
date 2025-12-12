@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from sentence_transformers import SentenceTransformer
+from FlagEmbedding import FlagReranker
 
 
 REQUIRED_COLUMNS = {"ID", "Описание", "Решение"}
@@ -179,6 +180,26 @@ def encode_texts(
         list(texts), batch_size=batch_size, convert_to_numpy=True, show_progress_bar=True
     )
     return embeddings.astype("float32")
+
+
+@lru_cache(maxsize=1)
+def load_reranker(model_name: str, device: str = "cpu") -> FlagReranker:
+    use_fp16 = device != "cpu"
+    return FlagReranker(model_name, use_fp16=use_fp16)
+
+
+def rerank_results(
+    query: str, candidates: Sequence[Dict], model_name: str, device: str = "cpu"
+) -> List[Dict]:
+    reranker = load_reranker(model_name, device=device)
+    pairs = [[query, row["text"]] for row in candidates]
+    scores = reranker.compute_score(pairs, normalize=True)
+
+    reranked: List[Dict] = []
+    for row, score in zip(candidates, scores):
+        reranked.append({**row, "score": float(score)})
+
+    return sorted(reranked, key=lambda row: row["score"], reverse=True)
 
 
 def build_faiss_index(vectors: np.ndarray) -> faiss.Index:
@@ -375,15 +396,19 @@ def search(
     batch_size: int = 32,
     model_name: str | None = None,
     device: str = "cpu",
+    rerank: bool = False,
+    reranker_model: str = "BAAI/bge-reranker-base",
+    rerank_candidates: int = 30,
 ) -> List[Dict]:
     index, metadata, config = load_index(index_dir)
     model_to_use = model_name or config.model_name
     device_to_use = device or config.device
+    candidates_to_fetch = rerank_candidates if rerank else top_k
     query_vec = encode_texts(
         [query], model_name=model_to_use, batch_size=batch_size, device=device_to_use
     )
     faiss.normalize_L2(query_vec)
-    distances, ids = index.search(query_vec, top_k)
+    distances, ids = index.search(query_vec, min(candidates_to_fetch, index.ntotal))
     results: List[Dict] = []
     for score, idx in zip(distances[0], ids[0]):
         if idx == -1:
@@ -396,4 +421,8 @@ def search(
             "text": meta["text"],
             "source_fields": meta.get("source_fields", {}),
         })
-    return results
+    if rerank and results:
+        results = rerank_results(
+            query=query, candidates=results, model_name=reranker_model, device=device
+        )
+    return results[:top_k]
