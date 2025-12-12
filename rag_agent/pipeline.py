@@ -234,8 +234,12 @@ def rerank_results(
         print("[RERANK DEBUG] No valid (query, chunk) pairs for reranking")
         return []
 
-    reranker = load_reranker(model_name, device=device)
-    scores = reranker.compute_score(pairs_to_score, normalize=True)
+    try:
+        reranker = load_reranker(model_name, device=device)
+        scores = reranker.compute_score(pairs_to_score, normalize=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[RERANK ERROR] Failed to compute scores: {exc}")
+        return []
 
     reranked: List[Dict] = []
     for row, score in zip(valid_candidates, scores):
