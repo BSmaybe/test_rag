@@ -185,18 +185,41 @@ def encode_texts(
 @lru_cache(maxsize=1)
 def load_reranker(model_name: str, device: str = "cpu") -> FlagReranker:
     use_fp16 = device != "cpu"
-    return FlagReranker(model_name, use_fp16=use_fp16)
+    return FlagReranker(model_name, use_fp16=use_fp16, device=device)
 
 
 def rerank_results(
-    query: str, candidates: Sequence[Dict], model_name: str, device: str = "cpu"
+    query: str,
+    candidates: Sequence[Dict],
+    model_name: str,
+    device: str = "cpu",
+    pairs: Sequence[tuple[str, str]] | None = None,
 ) -> List[Dict]:
+    if not candidates:
+        return []
+
+    valid_candidates: List[Dict] = []
+    pairs_to_score: List[tuple[str, str]] = []
+
+    if pairs is not None:
+        pairs_to_score = [(q, p) for q, p in pairs if p]
+        valid_candidates = [c for c in candidates if c.get("text")]
+    else:
+        for row in candidates:
+            text = row.get("text")
+            if not text:
+                continue
+            valid_candidates.append(row)
+            pairs_to_score.append((query, text))
+
+    if not pairs_to_score:
+        raise ValueError("No valid (query, chunk) pairs for reranking")
+
     reranker = load_reranker(model_name, device=device)
-    pairs = [[query, row["text"]] for row in candidates]
-    scores = reranker.compute_score(pairs, normalize=True)
+    scores = reranker.compute_score(pairs_to_score, normalize=True)
 
     reranked: List[Dict] = []
-    for row, score in zip(candidates, scores):
+    for row, score in zip(valid_candidates, scores):
         reranked.append({**row, "score": float(score)})
 
     return sorted(reranked, key=lambda row: row["score"], reverse=True)
@@ -422,7 +445,17 @@ def search(
             "source_fields": meta.get("source_fields", {}),
         })
     if rerank and results:
+        pairs = [(query, ch["text"]) for ch in results if ch.get("text")]
+        print(len(results), results[:1])
+        print(f"[RERANK DEBUG] Retrieved: {len(results)}")
+        for ch in results:
+            print(f" - {ch.get('ticket_id')} | {len(ch.get('text', ''))} chars")
+        print(f"[RERANK DEBUG] Pairs for reranking: {len(pairs)}")
         results = rerank_results(
-            query=query, candidates=results, model_name=reranker_model, device=device
+            query=query,
+            candidates=[ch for ch in results if ch.get("text")],
+            model_name=reranker_model,
+            device=device_to_use,
+            pairs=pairs,
         )
     return results[:top_k]
