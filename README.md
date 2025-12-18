@@ -138,3 +138,27 @@ rag_agent/
 
 ## Ограничения и будущая работа
 - Для быстрой генерации на CPU ограничивайте `max_tokens` 512–1024 и держите промпт компактным.
+
+## Запуск в Docker
+Соберите образ из корня репозитория:
+```bash
+docker build -t rag-agent .
+```
+
+Запустите Streamlit-приложение, пробросив порт и при необходимости примонтировав каталоги данных и моделей:
+```bash
+docker run \
+  -p 8501:8501 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/models:/app/models \
+  rag-agent
+```
+
+В контейнере заранее созданы директории `/app/data/index`, `/app/data/uploaded`, `/app/data/logs` и `/app/models`, их можно монтировать как volume для сохранения индексов, загруженных файлов, логов и моделей. По умолчанию приложение слушает порт `8501` и запускается командой `streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port 8501`.
+
+Переменные окружения:
+- `STREAMLIT_SERVER_PORT` — порт Streamlit (по умолчанию 8501).
+- `DEFAULT_INDEX_DIR` — путь к индексу (по умолчанию `/app/data/index`), можно переопределить при запуске: `-e DEFAULT_INDEX_DIR=/app/data/custom_index`.
+- `DEFAULT_LLM_PATH` — путь к GGUF-модели (по умолчанию `/app/models/mistral-7b-instruct-v0.2.Q4_K_M.gguf`).
+
+Для передачи собственных моделей и индекса используйте монтирование путей в `/app/data` и `/app/models` или меняйте переменные окружения.
