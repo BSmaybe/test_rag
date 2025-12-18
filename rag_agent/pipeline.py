@@ -116,9 +116,19 @@ def load_tickets(input_path: Path) -> pd.DataFrame:
 
 
 def _normalize_column_name(name: object) -> str:
-    cleaned = str(name or "")
+    if name is None:
+        raw = ""
+    else:
+        try:
+            if pd.isna(name):  # type: ignore[arg-type]
+                raw = ""
+            else:
+                raw = str(name)
+        except Exception:  # noqa: BLE001
+            raw = str(name)
+
     cleaned = (
-        cleaned.replace("\ufeff", "")
+        raw.replace("\ufeff", "")
         .replace("\u00a0", " ")
         .replace("\u200b", "")
         .replace("\u202f", " ")

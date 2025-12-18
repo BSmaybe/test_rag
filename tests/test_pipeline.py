@@ -56,6 +56,14 @@ class PrepareChunksTestCase(unittest.TestCase):
         self.assertIn("Решение", normalized.columns)
         self.assertEqual(normalized["ID"].nunique(dropna=True), len(df))
 
+    def test_normalizes_weird_or_missing_header_values(self) -> None:
+        df = pd.DataFrame([[1, "desc", "res"]], columns=[pd.NA, "Номер запроса", "Описание решения"])
+
+        normalized = normalize_headers(df)
+
+        self.assertIn("ID", normalized.columns)
+        self.assertEqual(normalized["ID"].iloc[0], "desc")
+
 
 class UpdateIndexSerializationTestCase(unittest.TestCase):
     def test_converts_timestamp_metadata(self) -> None:
