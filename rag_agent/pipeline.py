@@ -140,9 +140,20 @@ def prepare_chunks(
     if missing:
         raise ValueError(f"Отсутствуют обязательные колонки: {sorted(missing)}")
 
+    df = df.copy()
+    df["ID"] = df["ID"].astype("string").str.strip()
+
+    invalid_ids = df["ID"].isna() | (df["ID"] == "")
+    if invalid_ids.any():
+        invalid_count = int(invalid_ids.sum())
+        raise ValueError(
+            "Найдены пустые ID в "
+            f"{invalid_count} строках. Заполните колонку ID перед индексацией."
+        )
+
     records: List[Dict] = []
     for _, row in df.iterrows():
-        ticket_id = str(row["ID"])
+        ticket_id = row["ID"]
         description = row.get("Описание", "")
         resolution = row.get("Решение", "")
         merged = f"Описание: {description}\nРешение: {resolution}"
