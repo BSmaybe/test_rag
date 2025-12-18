@@ -131,6 +131,37 @@ def normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _normalize_source_value(value: object) -> str | None:
+    if value is None:
+        return None
+
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        # Некоторые типы (например, datetime) не поддерживают pd.isna напрямую
+        pass
+
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+
+    return str(value)
+
+
+def _sanitize_record(record: Dict) -> Dict:
+    sanitized = dict(record)
+    source_fields = sanitized.get("source_fields") or {}
+    sanitized["source_fields"] = {
+        "date": _normalize_source_value(source_fields.get("date")),
+        "status": _normalize_source_value(source_fields.get("status")),
+        "type": _normalize_source_value(source_fields.get("type")),
+    }
+    sanitized["ticket_id"] = str(sanitized.get("ticket_id"))
+    sanitized["chunk_id"] = int(sanitized.get("chunk_id", 0))
+    sanitized["text"] = str(sanitized.get("text", ""))
+    return sanitized
+
+
 def prepare_chunks(
     df: pd.DataFrame,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
@@ -161,9 +192,9 @@ def prepare_chunks(
         payload_common = {
             "ticket_id": ticket_id,
             "source_fields": {
-                "date": row.get("Дата"),
-                "status": row.get("Статус"),
-                "type": row.get("Тип"),
+                "date": _normalize_source_value(row.get("Дата")),
+                "status": _normalize_source_value(row.get("Статус")),
+                "type": _normalize_source_value(row.get("Тип")),
             },
         }
         for idx, chunk in enumerate(text_chunks):
@@ -335,7 +366,8 @@ def save_index(
     faiss.write_index(index, str(index_dir / "index.faiss"))
     with (index_dir / "metadata.jsonl").open("w", encoding="utf-8") as f:
         for row in metadata:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            sanitized = _sanitize_record(row)
+            f.write(json.dumps(sanitized, ensure_ascii=False) + "\n")
     (index_dir / "config.json").write_text(
         json.dumps(config.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
     )
