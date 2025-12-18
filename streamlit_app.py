@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
@@ -23,11 +24,13 @@ from rag_agent.pipeline import (
     update_index,
 )
 
-DEFAULT_INDEX_DIR = Path("data/index")
-DEFAULT_UPLOAD_DIR = Path("data/uploaded")
-DEFAULT_LOG_DIR = Path("data/logs")
+DEFAULT_INDEX_DIR = Path(os.getenv("DEFAULT_INDEX_DIR", "data/index"))
+DEFAULT_UPLOAD_DIR = Path(os.getenv("DEFAULT_UPLOAD_DIR", "data/uploaded"))
+DEFAULT_LOG_DIR = Path(os.getenv("DEFAULT_LOG_DIR", "data/logs"))
 DEFAULT_MODEL = "intfloat/multilingual-e5-small"
-DEFAULT_LLM_PATH = "models/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+DEFAULT_LLM_PATH = os.getenv(
+    "DEFAULT_LLM_PATH", "models/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+)
 
 
 def read_uploaded_file(uploaded_file) -> pd.DataFrame:
