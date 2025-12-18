@@ -509,6 +509,30 @@ def load_metadata(index_dir: Path) -> List[Dict]:
     return metadata
 
 
+def clear_index(index_dir: Path) -> Dict[str, List[str]]:
+    """Удаляет файлы индекса в указанной директории."""
+
+    targets = ["index.faiss", "metadata.jsonl", "config.json"]
+    removed: List[str] = []
+    missing: List[str] = []
+
+    for name in targets:
+        path = index_dir / name
+        if path.exists():
+            path.unlink()
+            removed.append(name)
+        else:
+            missing.append(name)
+
+    try:
+        index_dir.rmdir()
+    except OSError:
+        # Директория может содержать дополнительные файлы
+        pass
+
+    return {"removed": removed, "missing": missing}
+
+
 def search(
     query: str,
     index_dir: Path,
