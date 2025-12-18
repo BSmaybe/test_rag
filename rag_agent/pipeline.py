@@ -19,6 +19,21 @@ from FlagEmbedding import FlagReranker
 
 
 REQUIRED_COLUMNS = {"ID", "Описание", "Решение"}
+CANONICAL_ALIASES = {
+    "id": "ID",
+    "номер запроса": "ID",
+    "описание": "Описание",
+    "решение": "Решение",
+    "описание решения": "Решение",
+    "дата": "Дата",
+    "дата/время регистрации": "Дата",
+    "дата регистрации": "Дата",
+    "статус": "Статус",
+    "текущий статус": "Статус",
+    "системный статус": "Статус",
+    "тип": "Тип",
+    "вид запроса": "Тип",
+}
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 50
 
@@ -96,39 +111,60 @@ def load_tickets(input_path: Path) -> pd.DataFrame:
         raise ValueError("Поддерживаются только CSV, XLS, XLSX")
 
     normalized = normalize_headers(df)
-    columns, missing = describe_columns(normalized)
-    report_columns(columns, missing)
+    validate_schema(normalized)
     return normalized
+
+
+def _normalize_column_name(name: object) -> str:
+    if name is None:
+        raw = ""
+    else:
+        try:
+            if pd.isna(name):  # type: ignore[arg-type]
+                raw = ""
+            else:
+                raw = str(name)
+        except Exception:  # noqa: BLE001
+            raw = str(name)
+
+    cleaned = (
+        raw.replace("\ufeff", "")
+        .replace("\u00a0", " ")
+        .replace("\u200b", "")
+        .replace("\u202f", " ")
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip().casefold()
 
 
 def normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
     """Сопоставляет нестандартные названия колонок с целевыми алиасами."""
 
-    alias_map = {
-        "ID": ["ID", "Номер запроса"],
-        "Описание": ["Описание"],
-        "Решение": ["Решение", "Описание решения"],
-        "Дата": ["Дата", "Дата/время регистрации", "Дата регистрации"],
-        "Статус": ["Статус", "Текущий статус", "Системный статус"],
-        "Тип": ["Тип", "Вид запроса"],
-    }
-
-    normalized_columns = {col.strip(): col for col in df.columns}
     rename_map: Dict[str, str] = {}
 
-    for target, aliases in alias_map.items():
-        # Если столбец уже присутствует под целевым именем — пропускаем
-        if target in normalized_columns:
-            continue
-        for alias in aliases:
-            if alias in normalized_columns:
-                rename_map[normalized_columns[alias]] = target
-                break
+    for original in df.columns:
+        normalized = _normalize_column_name(original)
+        target = CANONICAL_ALIASES.get(normalized)
+        if target:
+            if original != target:
+                rename_map[original] = target
 
     if rename_map:
         df = df.rename(columns=rename_map)
 
+    df = df.copy()
+    df.columns = [str(col).strip() for col in df.columns]
     return df
+
+
+def validate_schema(df: pd.DataFrame) -> None:
+    columns, missing = describe_columns(df)
+    report_columns(columns, missing)
+    if missing:
+        raise ValueError(
+            f"Отсутствуют обязательные колонки: {sorted(missing)}. "
+            f"Найдены колонки: {', '.join(columns)}"
+        )
 
 
 def _normalize_source_value(value: object) -> str | None:
@@ -167,10 +203,7 @@ def prepare_chunks(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> List[Dict]:
-    missing = REQUIRED_COLUMNS - set(df.columns)
-    if missing:
-        raise ValueError(f"Отсутствуют обязательные колонки: {sorted(missing)}")
-
+    validate_schema(df)
     df = df.copy()
     df["ID"] = df["ID"].astype("string").str.strip()
 
@@ -181,6 +214,14 @@ def prepare_chunks(
             "Найдены пустые ID в "
             f"{invalid_count} строках. Заполните колонку ID перед индексацией."
         )
+
+    total_rows = len(df)
+    unique_ids = df["ID"].nunique(dropna=True)
+    sample_ids = df["ID"].head(5).tolist()
+    print(
+        "[INGEST] Диагностика перед чанкингом: "
+        f"строк={total_rows}, уникальных ID={unique_ids}, первые ID={sample_ids}"
+    )
 
     records: List[Dict] = []
     for _, row in df.iterrows():
