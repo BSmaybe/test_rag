@@ -335,6 +335,10 @@ def load_index(index_dir: Path) -> tuple[faiss.Index, List[Dict], Config]:
     metadata_path = index_dir / "metadata.jsonl"
     config_path = index_dir / "config.json"
 
+    for path in (index_path, metadata_path, config_path):
+        if not path.exists():
+            raise FileNotFoundError(f"Не найден файл индекса: {path}")
+
     index = faiss.read_index(str(index_path))
     metadata: List[Dict] = []
     with metadata_path.open("r", encoding="utf-8") as f:

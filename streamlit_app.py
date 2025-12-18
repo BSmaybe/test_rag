@@ -106,6 +106,16 @@ def main() -> None:
     index_dir = Path(st.text_input("Путь к индексу", str(DEFAULT_INDEX_DIR)))
     stats = render_index_state(index_dir)
 
+    embedding_model = st.text_input(
+        "Модель эмбеддингов для индекса",
+        value=stats["config"].model_name if stats else DEFAULT_MODEL,
+        disabled=stats is not None,
+        help=(
+            "Укажите модель для создания нового индекса."
+            " Изменить модель у существующего индекса нельзя."
+        ),
+    )
+
     st.subheader("Загрузка файла")
     uploaded_file = st.file_uploader("CSV или Excel", type=["csv", "xls", "xlsx"])
     chunk_size = st.number_input(
@@ -164,7 +174,7 @@ def main() -> None:
                         index_dir=index_dir,
                         chunk_size=int(chunk_size),
                         chunk_overlap=int(chunk_overlap),
-                        model_name=stats["config"].model_name if stats else DEFAULT_MODEL,
+                        model_name=embedding_model,
                     )
             except Exception as exc:  # noqa: BLE001
                 log_update(
