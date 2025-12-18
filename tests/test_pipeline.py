@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pandas as pd
 import numpy as np
 
-from rag_agent.pipeline import prepare_chunks, update_index
+from rag_agent.pipeline import normalize_headers, prepare_chunks, update_index
 
 
 class PrepareChunksTestCase(unittest.TestCase):
@@ -40,6 +40,21 @@ class PrepareChunksTestCase(unittest.TestCase):
         self.assertEqual(records[0]["ticket_id"], "123")
         self.assertEqual(records[1]["ticket_id"], "456")
         self.assertTrue(records[0]["text"].startswith("Описание:"))
+
+    def test_maps_naumen_headers_and_counts_unique_ids(self) -> None:
+        df = pd.DataFrame(
+            {
+                "Номер запроса": [1, 2, 3],
+                "Описание": ["a", "b", "c"],
+                "Описание решения": ["r1", "r2", "r3"],
+            }
+        )
+
+        normalized = normalize_headers(df)
+
+        self.assertIn("ID", normalized.columns)
+        self.assertIn("Решение", normalized.columns)
+        self.assertEqual(normalized["ID"].nunique(dropna=True), len(df))
 
 
 class UpdateIndexSerializationTestCase(unittest.TestCase):
