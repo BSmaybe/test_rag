@@ -149,7 +149,8 @@ def main() -> None:
     existing_ids = get_existing_ids(index_dir)
     ids_in_file: set[str] = set()
     if df is not None and "ID" in df.columns:
-        ids_in_file = {str(val) for val in df["ID"].dropna().astype(str)}
+        normalized_ids = df["ID"].astype("string").str.strip()
+        ids_in_file = {val for val in normalized_ids.dropna() if val != ""}
 
     if df is not None:
         new_ids = ids_in_file - existing_ids
@@ -176,6 +177,19 @@ def main() -> None:
                         chunk_overlap=int(chunk_overlap),
                         model_name=embedding_model,
                     )
+            except ValueError as exc:
+                log_update(
+                    DEFAULT_LOG_DIR,
+                    {
+                        "file": uploaded_path.name,
+                        "index_dir": str(index_dir),
+                        "duration_seconds": round(perf_counter() - started_at, 3),
+                        "added": 0,
+                        "skipped": 0,
+                        "errors": [str(exc)],
+                    },
+                )
+                st.error(f"Некорректные данные: {exc}")
             except Exception as exc:  # noqa: BLE001
                 log_update(
                     DEFAULT_LOG_DIR,

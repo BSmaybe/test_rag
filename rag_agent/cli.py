@@ -53,56 +53,58 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    try:
+        if args.command == "ingest":
+            df = load_tickets(Path(args.input))
+            print(f"Загружено {len(df)} тикетов")
+            persist_pipeline(
+                df=df,
+                output_dir=Path(args.output),
+                model_name=args.model,
+                chunk_size=args.chunk_size,
+                chunk_overlap=args.chunk_overlap,
+                batch_size=args.batch_size,
+            )
+            print(f"Индекс сохранён в {args.output}")
+        elif args.command == "query":
+            results = search(
+                query=args.query,
+                index_dir=Path(args.index),
+                top_k=args.top_k,
+                batch_size=args.batch_size,
+                model_name=args.model,
+            )
+            if not results:
+                print("Ничего не найдено")
+                return
+            for row in results:
+                print(f"[ID={row['ticket_id']} #{row['chunk_id']}] score={row['score']:.4f} \n{row['text']}\n")
+        elif args.command == "update":
+            df = load_tickets(Path(args.input))
+            summary = update_index(
+                df=df,
+                index_dir=Path(args.index),
+                chunk_size=args.chunk_size,
+                chunk_overlap=args.chunk_overlap,
+                batch_size=args.batch_size,
+                device=args.device,
+                model_name=args.model,
+            )
+            added_ids = summary.get("added_ids") or []
+            skipped_ids = summary.get("skipped_ids") or []
 
-    if args.command == "ingest":
-        df = load_tickets(Path(args.input))
-        print(f"Загружено {len(df)} тикетов")
-        persist_pipeline(
-            df=df,
-            output_dir=Path(args.output),
-            model_name=args.model,
-            chunk_size=args.chunk_size,
-            chunk_overlap=args.chunk_overlap,
-            batch_size=args.batch_size,
-        )
-        print(f"Индекс сохранён в {args.output}")
-    elif args.command == "query":
-        results = search(
-            query=args.query,
-            index_dir=Path(args.index),
-            top_k=args.top_k,
-            batch_size=args.batch_size,
-            model_name=args.model,
-        )
-        if not results:
-            print("Ничего не найдено")
-            return
-        for row in results:
-            print(f"[ID={row['ticket_id']} #{row['chunk_id']}] score={row['score']:.4f} \n{row['text']}\n")
-    elif args.command == "update":
-        df = load_tickets(Path(args.input))
-        summary = update_index(
-            df=df,
-            index_dir=Path(args.index),
-            chunk_size=args.chunk_size,
-            chunk_overlap=args.chunk_overlap,
-            batch_size=args.batch_size,
-            device=args.device,
-            model_name=args.model,
-        )
-        added_ids = summary.get("added_ids") or []
-        skipped_ids = summary.get("skipped_ids") or []
-
-        if added_ids:
-            print(f"Добавлены тикеты: {', '.join(added_ids)}")
-        if skipped_ids:
-            print(f"Пропущены существующие тикеты: {', '.join(skipped_ids)}")
-        print(
-            f"Индекс обновлён: +{summary['added_chunks']} чанков, всего тикетов "
-            f"{summary['total_tickets']}, всего чанков {summary['total_chunks']}"
-        )
-    else:
-        parser.print_help()
+            if added_ids:
+                print(f"Добавлены тикеты: {', '.join(added_ids)}")
+            if skipped_ids:
+                print(f"Пропущены существующие тикеты: {', '.join(skipped_ids)}")
+            print(
+                f"Индекс обновлён: +{summary['added_chunks']} чанков, всего тикетов "
+                f"{summary['total_tickets']}, всего чанков {summary['total_chunks']}"
+            )
+        else:
+            parser.print_help()
+    except ValueError as exc:
+        parser.exit(status=1, message=f"Ошибка: {exc}\n")
 
 
 if __name__ == "__main__":
