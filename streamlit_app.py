@@ -15,6 +15,7 @@ from rag_agent.generator import generate_answer
 from rag_agent.pipeline import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
+    clear_index,
     describe_columns,
     describe_index,
     load_metadata,
@@ -104,7 +105,23 @@ def main() -> None:
     st.title("FAISS индекс тикетов: загрузка и обновление")
 
     index_dir = Path(st.text_input("Путь к индексу", str(DEFAULT_INDEX_DIR)))
+    clear_result = st.session_state.pop("last_clear_result", None)
     stats = render_index_state(index_dir)
+
+    if clear_result:
+        if clear_result["removed"]:
+            st.success(
+                "Индекс очищен. Удалены файлы: "
+                f"{', '.join(clear_result['removed'])}."
+            )
+        else:
+            st.info("Файлы индекса не найдены — нечего очищать.")
+
+    if st.button("Очистить индекс", type="secondary", disabled=stats is None):
+        with st.spinner("Удаляем файлы индекса..."):
+            result = clear_index(index_dir)
+        st.session_state["last_clear_result"] = result
+        st.experimental_rerun()
 
     embedding_model = st.text_input(
         "Модель эмбеддингов для индекса",

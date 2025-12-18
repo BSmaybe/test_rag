@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .pipeline import persist_pipeline, load_tickets, search, update_index
+from .pipeline import clear_index, load_tickets, persist_pipeline, search, update_index
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,6 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Модель эмбеддингов (по умолчанию из config.json)",
     )
+
+    clear_parser = subparsers.add_parser("clear", help="Удалить файлы индекса")
+    clear_parser.add_argument("--index", required=True, help="Папка с индексом")
     return parser
 
 
@@ -101,6 +104,17 @@ def main() -> None:
                 f"Индекс обновлён: +{summary['added_chunks']} чанков, всего тикетов "
                 f"{summary['total_tickets']}, всего чанков {summary['total_chunks']}"
             )
+        elif args.command == "clear":
+            result = clear_index(Path(args.index))
+            if result["removed"]:
+                print(
+                    "Удалены файлы индекса: "
+                    f"{', '.join(result['removed'])}"
+                )
+            else:
+                print("Файлы индекса не найдены — нечего удалять")
+            if result["missing"] and result["removed"]:
+                print("Отсутствовали файлы: " + ", ".join(result["missing"]))
         else:
             parser.print_help()
     except ValueError as exc:
