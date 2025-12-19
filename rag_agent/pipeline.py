@@ -156,7 +156,30 @@ def normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
     df.columns = [str(col).strip() for col in df.columns]
-    return df
+    return _merge_duplicate_columns(df)
+
+
+def _merge_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Объединяет дублирующиеся колонки, выбирая первое непустое значение слева направо."""
+
+    if df.columns.is_unique:
+        return df
+
+    merged: Dict[str, pd.Series] = {}
+    columns = list(df.columns)
+
+    for idx, column in enumerate(columns):
+        if column in merged:
+            continue
+
+        duplicate_indices = [i for i, name in enumerate(columns) if name == column]
+        if len(duplicate_indices) == 1:
+            merged[column] = df.iloc[:, idx]
+            continue
+
+        merged[column] = df.iloc[:, duplicate_indices].bfill(axis=1).iloc[:, 0]
+
+    return pd.DataFrame(merged, index=df.index)
 
 
 def _extract_hyperlink_display(text: str) -> str | None:
