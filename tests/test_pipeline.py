@@ -64,6 +64,21 @@ class PrepareChunksTestCase(unittest.TestCase):
         self.assertIn("ID", normalized.columns)
         self.assertEqual(normalized["ID"].iloc[0], "desc")
 
+    def test_cleans_hyperlink_formulas_and_apostrophes(self) -> None:
+        df = pd.DataFrame(
+            {
+                "ID": ['=HYPERLINK("http://x"; "123")'],
+                "Описание": ['=HYPERLINK("http://x"; "Описание 1")'],
+                "Решение": ['\'=HYPERLINK("http://x"; "Решение 1")'],
+            }
+        )
+
+        records = prepare_chunks(df, chunk_size=128, chunk_overlap=0)
+
+        self.assertEqual(records[0]["ticket_id"], "123")
+        self.assertIn("Описание: Описание 1", records[0]["text"])
+        self.assertIn("Решение: Решение 1", records[0]["text"])
+
 
 class UpdateIndexSerializationTestCase(unittest.TestCase):
     def test_converts_timestamp_metadata(self) -> None:

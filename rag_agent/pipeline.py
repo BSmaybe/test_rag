@@ -36,6 +36,7 @@ CANONICAL_ALIASES = {
 }
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 50
+HYPERLINK_PATTERN = re.compile(r"^\s*=\s*HYPERLINK\s*\((.*)\)\s*$", re.IGNORECASE)
 
 
 @dataclass
@@ -111,8 +112,9 @@ def load_tickets(input_path: Path) -> pd.DataFrame:
         raise ValueError("Поддерживаются только CSV, XLS, XLSX")
 
     normalized = normalize_headers(df)
-    validate_schema(normalized)
-    return normalized
+    cleaned = _clean_dataframe_values(normalized)
+    validate_schema(cleaned)
+    return cleaned
 
 
 def _normalize_column_name(name: object) -> str:
@@ -155,6 +157,45 @@ def normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [str(col).strip() for col in df.columns]
     return df
+
+
+def _extract_hyperlink_display(text: str) -> str | None:
+    match = HYPERLINK_PATTERN.match(text)
+    if not match:
+        return None
+
+    inner = match.group(1)
+    parts = re.split(r"\s*[;,]\s*", inner, maxsplit=1)
+    if len(parts) < 2:
+        return None
+
+    display = parts[1].strip()
+    if display.startswith(("'", '"')) and display.endswith(("'", '"')):
+        display = display[1:-1]
+
+    return display.strip()
+
+
+def _clean_cell_value(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+
+    normalized = value
+    if normalized.startswith("'"):
+        normalized = normalized[1:]
+
+    hyperlink_display = _extract_hyperlink_display(normalized)
+    if hyperlink_display is not None:
+        return hyperlink_display
+
+    return normalized
+
+
+def _clean_dataframe_values(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    return df.map(_clean_cell_value)
 
 
 def validate_schema(df: pd.DataFrame) -> None:
@@ -203,6 +244,7 @@ def prepare_chunks(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> List[Dict]:
+    df = _clean_dataframe_values(df)
     validate_schema(df)
     df = df.copy()
     df["ID"] = df["ID"].astype("string").str.strip()
