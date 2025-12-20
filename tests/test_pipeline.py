@@ -64,6 +64,28 @@ class PrepareChunksTestCase(unittest.TestCase):
         self.assertIn("ID", normalized.columns)
         self.assertEqual(normalized["ID"].iloc[0], "desc")
 
+    def test_merges_duplicate_columns_after_alias_mapping(self) -> None:
+        df = pd.DataFrame(
+            {
+                "ID": ["1", None],
+                "Номер запроса": [None, "2"],
+                "Описание": ["Описание 1", None],
+                "описание": [None, "Описание 2"],
+                "Решение": [None, "Решение 2"],
+                "Описание решения": ["Решение 1", None],
+                "Статус": [None, "Закрыт"],
+                "Системный статус": ["Открыт", None],
+            }
+        )
+
+        normalized = normalize_headers(df)
+
+        self.assertTrue(normalized.columns.is_unique)
+        self.assertEqual(normalized["ID"].tolist(), ["1", "2"])
+        self.assertEqual(normalized["Описание"].tolist(), ["Описание 1", "Описание 2"])
+        self.assertEqual(normalized["Решение"].tolist(), ["Решение 1", "Решение 2"])
+        self.assertEqual(normalized["Статус"].tolist(), ["Открыт", "Закрыт"])
+
     def test_cleans_hyperlink_formulas_and_apostrophes(self) -> None:
         df = pd.DataFrame(
             {
